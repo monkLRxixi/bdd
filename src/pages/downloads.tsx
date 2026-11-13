@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   CheckCircle2,
+  Clock,
   DownloadCloud,
   FolderOpen,
   Loader2,
@@ -16,6 +17,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { api, errorText } from "@/lib/api";
 import { formatBytes, formatSpeed, etaText } from "@/lib/format";
@@ -123,13 +125,17 @@ function TaskRow({ task }: { task: DownloadTask }) {
               ? "bg-destructive/10 text-destructive"
               : task.status === "done"
                 ? "bg-primary/10 text-primary"
-                : "bg-accent text-accent-foreground",
+                : task.status === "queued"
+                  ? "bg-muted text-muted-foreground"
+                  : "bg-accent text-accent-foreground",
           )}
         >
           {task.status === "done" ? (
             <CheckCircle2 className="size-4.5" />
           ) : task.status === "error" ? (
             <XCircle className="size-4.5" />
+          ) : task.status === "queued" ? (
+            <Clock className="size-4.5" />
           ) : (
             <DownloadCloud className="size-4.5" />
           )}
@@ -153,8 +159,8 @@ function TaskRow({ task }: { task: DownloadTask }) {
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  aria-label="取消下载"
-                  title="取消下载"
+                  aria-label={task.status === "queued" ? "取消排队" : "取消下载"}
+                  title={task.status === "queued" ? "取消排队" : "取消下载"}
                   onClick={cancel}
                 >
                   <X className="size-3.5" />
@@ -186,105 +192,211 @@ function TaskRow({ task }: { task: DownloadTask }) {
             </div>
           </div>
 
-          <div className="mt-3">
-            <Progress
-              value={percent}
-              className={cn(
-                "gap-0 [&_[data-slot=progress-track]]:h-1.5",
-                task.status === "error" &&
-                  "[&_[data-slot=progress-indicator]]:bg-destructive",
-                task.status === "done" &&
-                  "[&_[data-slot=progress-indicator]]:bg-primary",
-              )}
-            />
-            <div className="mt-1.5 flex items-center justify-between gap-3 text-[10px] text-muted-foreground">
-              <span className="truncate">{phaseLabel(task)}</span>
-              <span className="shrink-0 tabular-nums">
-                {isActive(task.status) ? (
-                  <>
-                    {task.received > 0
-                      ? `${formatBytes(task.received)}${
-                          task.total ? ` / ${formatBytes(task.total)}` : ""
-                        }`
-                      : ""}
-                    {task.speed > 0 ? ` · ${formatSpeed(task.speed)}` : ""}
-                    {task.total > 0 && task.received > 0
-                      ? ` · ${percent.toFixed(0)}%`
-                      : ""}
-                    {etaText(task.received, task.total, task.speed)
-                      ? ` · ${etaText(task.received, task.total, task.speed)}`
-                      : ""}
-                  </>
-                ) : task.status === "done" ? (
-                  "文件已保存到本地"
-                ) : null}
-              </span>
+          {task.status === "downloading" ||
+          task.status === "merging" ||
+          task.status === "done" ? (
+            <div className="mt-3">
+              <Progress
+                value={percent}
+                className={cn(
+                  "gap-0 [&_[data-slot=progress-track]]:h-1.5",
+                  task.status === "done" &&
+                    "[&_[data-slot=progress-indicator]]:bg-primary",
+                )}
+              />
+              <div className="mt-1.5 flex items-center justify-between gap-3 text-[10px] text-muted-foreground">
+                <span className="truncate">{phaseLabel(task)}</span>
+                <span className="shrink-0 tabular-nums">
+                  {isActive(task.status) ? (
+                    <>
+                      {task.received > 0
+                        ? `${formatBytes(task.received)}${
+                            task.total ? ` / ${formatBytes(task.total)}` : ""
+                          }`
+                        : ""}
+                      {task.speed > 0 ? ` · ${formatSpeed(task.speed)}` : ""}
+                      {task.total > 0 && task.received > 0
+                        ? ` · ${percent.toFixed(0)}%`
+                        : ""}
+                      {etaText(task.received, task.total, task.speed)
+                        ? ` · ${etaText(task.received, task.total, task.speed)}`
+                        : ""}
+                    </>
+                  ) : (
+                    "文件已保存到本地"
+                  )}
+                </span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <p className="mt-2 line-clamp-2 text-[10px] text-muted-foreground">
+              {task.status === "queued" ? "等待下载" : phaseLabel(task)}
+            </p>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
+function EmptyTasks({
+  icon,
+  title,
+  hint,
+  action,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  hint?: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-center rounded-xl border border-dashed border-border/80 py-12 text-center">
+      <div className="grid size-10 place-items-center rounded-xl bg-muted text-muted-foreground/70">
+        {icon}
+      </div>
+      <p className="mt-3 text-[13px] font-medium">{title}</p>
+      {hint ? (
+        <p className="mt-1 text-[11px] text-muted-foreground">{hint}</p>
+      ) : null}
+      {action ? <div className="mt-3">{action}</div> : null}
+    </div>
+  );
+}
+
+type TabKey = "queued" | "active" | "done";
+
 export function DownloadsPage() {
   const tasks = useDownloadStore((state) => state.tasks);
   const clearFinished = useDownloadStore((state) => state.clearFinished);
 
   const list = useMemo(
-    () =>
-      Object.values(tasks).sort((a, b) => b.createdAt - a.createdAt),
+    () => Object.values(tasks).sort((a, b) => b.createdAt - a.createdAt),
     [tasks],
   );
 
-  const active = list.filter((task) => isActive(task.status));
-  const finished = list.filter((task) => isFinished(task.status));
+  const queued = useMemo(
+    () => list.filter((task) => task.status === "queued"),
+    [list],
+  );
+  const active = useMemo(
+    () =>
+      list.filter(
+        (task) => task.status === "downloading" || task.status === "merging",
+      ),
+    [list],
+  );
+  const downloaded = useMemo(
+    () => list.filter((task) => isFinished(task.status)),
+    [list],
+  );
+
+  const [tab, setTab] = useState<TabKey>(() => {
+    const all = Object.values(useDownloadStore.getState().tasks);
+    if (
+      all.some(
+        (task) => task.status === "downloading" || task.status === "merging",
+      )
+    ) {
+      return "active";
+    }
+    if (all.some((task) => task.status === "queued")) return "queued";
+    return "done";
+  });
+
+  // Once the queue drains completely, show the finished tasks.
+  useEffect(() => {
+    if (tab !== "active") return;
+    if (active.length > 0 || queued.length > 0) return;
+    if (downloaded.length > 0) setTab("done");
+  }, [tab, active.length, queued.length, downloaded.length]);
+
+  const tabs = [
+    { key: "queued", label: "待下载", count: queued.length },
+    { key: "active", label: "下载中", count: active.length },
+    { key: "done", label: "已下载", count: downloaded.length },
+  ] as const;
 
   return (
     <div className="mx-auto w-full max-w-[900px] px-6 py-8 sm:px-10">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-[22px] font-semibold tracking-tight">下载任务</h1>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {active.length > 0
-              ? `${active.length} 个任务进行中 · 已完成 ${finished.length} 个`
-              : `共 ${finished.length} 个任务记录`}
-          </p>
-        </div>
-        {finished.length > 0 ? (
+      <div className="flex items-end justify-between gap-3">
+        <h1 className="text-[22px] font-semibold tracking-tight">下载任务</h1>
+        {tab === "done" && downloaded.length > 0 ? (
           <Button variant="ghost" size="sm" onClick={clearFinished}>
             <RotateCcw />
-            清除已完成
+            清空记录
           </Button>
         ) : null}
-      </header>
+      </div>
 
-      {list.length === 0 ? (
-        <div className="mt-16 flex flex-col items-center text-center">
-          <div className="grid size-16 place-items-center rounded-2xl border border-border bg-card text-muted-foreground/70">
-            <DownloadCloud className="size-7" strokeWidth={1.6} />
-          </div>
-          <h2 className="mt-4 text-sm font-medium">还没有下载任务</h2>
-          <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
-            回到首页粘贴视频链接，解析后即可开始下载。
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-4"
-            nativeButton={false}
-            render={<Link to="/" />}
-          >
-            去解析视频
-          </Button>
-        </div>
-      ) : (
-        <div className="mt-6 space-y-2.5">
-          {list.map((task) => (
-            <TaskRow key={task.id} task={task} />
+      <Tabs
+        value={tab}
+        onValueChange={(value) => setTab(value as TabKey)}
+        className="mt-4"
+      >
+        <TabsList className="grid w-full grid-cols-3">
+          {tabs.map((item) => (
+            <TabsTrigger key={item.key} value={item.key}>
+              {item.label}
+              <span
+                className={cn(
+                  "text-[11px] tabular-nums",
+                  item.count > 0
+                    ? "text-muted-foreground"
+                    : "text-muted-foreground/40",
+                )}
+              >
+                {item.count}
+              </span>
+            </TabsTrigger>
           ))}
-        </div>
-      )}
+        </TabsList>
+
+        <TabsContent value="queued" className="mt-4 space-y-2.5">
+          {queued.length > 0 ? (
+            queued.map((task) => <TaskRow key={task.id} task={task} />)
+          ) : (
+            <EmptyTasks
+              icon={<Clock className="size-5" strokeWidth={1.7} />}
+              title="没有待下载的任务"
+              hint="超出并发数的任务会排在这里"
+            />
+          )}
+        </TabsContent>
+
+        <TabsContent value="active" className="mt-4 space-y-2.5">
+          {active.length > 0 ? (
+            active.map((task) => <TaskRow key={task.id} task={task} />)
+          ) : (
+            <EmptyTasks
+              icon={<DownloadCloud className="size-5" strokeWidth={1.7} />}
+              title="没有正在下载的任务"
+            />
+          )}
+        </TabsContent>
+
+        <TabsContent value="done" className="mt-4 space-y-2.5">
+          {downloaded.length > 0 ? (
+            downloaded.map((task) => <TaskRow key={task.id} task={task} />)
+          ) : (
+            <EmptyTasks
+              icon={<CheckCircle2 className="size-5" strokeWidth={1.7} />}
+              title="还没有下载记录"
+              hint="完成的视频会保存在本地下载目录"
+              action={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  nativeButton={false}
+                  render={<Link to="/" />}
+                >
+                  去解析视频
+                </Button>
+              }
+            />
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

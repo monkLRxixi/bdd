@@ -52,18 +52,9 @@ export function TitleBar() {
   return (
     <header
       data-tauri-drag-region
-      className="flex h-9 w-full shrink-0 items-center justify-between border-b border-border/70 bg-background/80 pl-4 select-none"
+      className="flex h-9 w-full shrink-0 items-center justify-end border-b border-border/70 bg-background/80 select-none"
     >
-      <div
-        data-tauri-drag-region
-        className="flex flex-1 items-center gap-2 text-[11px] font-medium tracking-[0.14em] text-muted-foreground uppercase"
-      >
-        <span className="size-1.5 rounded-full bg-primary" />
-        BiliDown
-        <span className="hidden text-muted-foreground/50 sm:inline">
-          · 视频下载器
-        </span>
-      </div>
+      <div data-tauri-drag-region className="h-full flex-1" />
       <div className="flex h-full items-center">
         <WindowButton label="最小化" onClick={() => appWindow.minimize()}>
           <Minus className="size-4" />
