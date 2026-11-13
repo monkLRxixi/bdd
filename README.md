@@ -1,122 +1,176 @@
-# BiliDown
+<p align="center">
+  <img src="public/bdd-icon.png" width="96" alt="BiliDown icon" />
+</p>
 
-一个基于 **Tauri 2 + React 19 + TypeScript** 的哔哩哔哩视频下载器 MVP。
-粘贴链接 → 选择画质 → 下载并自动合并，桌面端即点即用。
+<h1 align="center">BiliDown</h1>
 
-> 仅用于个人学习与备份，请遵守《哔哩哔哩用户协议》与著作权法，不要下载无权限或付费内容。
+<p align="center">
+  简洁的哔哩哔哩视频下载器 · Tauri 2 + React 19
+</p>
+
+<p align="center">
+  <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" />
+  <img alt="React" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" />
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?logo=rust&logoColor=white" />
+  <img alt="pnpm" src="https://img.shields.io/badge/pnpm-12-F69220?logo=pnpm&logoColor=white" />
+  <img alt="Platform" src="https://img.shields.io/badge/Windows%2011-tested-0078D4?logo=windows&logoColor=white" />
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-2ea44f" />
+</p>
+
+> 一个基于 **Tauri 2** 的桌面端哔哩哔哩视频下载器。粘贴链接即可解析视频与分 P，支持 DASH 音视频合并、单文件 MP4、批量选择、下载队列与扫码登录。
+>
+> ⚠️ 仅供个人学习与备份使用，请遵守《哔哩哔哩用户协议》与著作权法。
+
+## 界面预览
+
+| 首页解析 | 分 P 批量选择 |
+| :---: | :---: |
+| ![首页](docs/screenshots/home.png) | ![分 P 批量选择](docs/screenshots/multi-part.png) |
+
+| 下载任务 | 设置 |
+| :---: | :---: |
+| ![下载任务](docs/screenshots/downloads.png) | ![设置](docs/screenshots/settings.png) |
+
+> 截图中的账号头像、下载路径与任务数据均已脱敏处理。
 
 ## 功能
 
-- **链接解析**：支持 BV 号、av 号、`b23.tv` 短链、完整视频链接
-- **视频信息**：封面、标题、UP 主、播放量、简介、分 P 列表
-- **画质选择**：读取 DASH 真实可用码流（不信任 `data.quality` 虚报），可切换 H.264 / H.265 / AV1
-- **音轨选择**：192K / 132K / 64K，自动选择最高码率
-- **两种下载模式**
-  - `DASH 高清`：分别下载视频流与音频流，用 ffmpeg 无损合并为 MP4
-  - `单文件 MP4`：`platform=html5&high_quality=1`，无需 ffmpeg（匿名最高 720P）
-- **多 P 批量下载**：复选框列出全部分 P，支持全选（快捷键 A）与批量入队，自动建立 `标题/P01 xxx.mp4` 目录结构
-- **任务管理**：实时进度 / 速度 / 剩余时间、排队状态、取消、打开文件所在位置、历史任务持久化
-- **封面保存**：下载视频时顺带保存同名 JPG
-- **扫码登录**：B 站二维码登录，登录态与 buvid 持久化到本机
-- **设置**：桌面客户端风格的行式设置页，自动保存；下载目录 / 默认画质 / 音轨 / 编码 / 并发数 / 完成提示 / 深色模式 / ffmpeg 检测
-- **界面**：浅色 / 深色主题、无边框窗口 + 自定义标题栏、快捷键友好的 64px 侧边栏
+- **链接解析**：支持 BV 号、av 号、`b23.tv` 短链和完整视频链接。
+- **分 P 批量下载**：复选框列出全部分 P，支持全选（快捷键 `A`）和批量入队。
+- **真实画质**：读取 DASH 实际可用码流，可选画质、编码（H.264 / H.265 / AV1）和音轨。
+- **两种下载模式**：
+  - `DASH`：分别下载视频流与音频流，使用 ffmpeg 无损合并为 MP4。
+  - `单文件 MP4`：适合没有 ffmpeg 的环境，匿名最高 720P。
+- **任务管理**：待下载 / 下载中 / 已下载三栏，实时进度、速度、剩余时间、取消与打开文件夹。
+- **并发控制**：同时下载数可在设置中调整为 1–4 个，超出部分显示「排队中」。
+- **扫码登录**：B 站二维码登录，登录后可获取 1080P；大会员支持更高画质。
+- **桌面体验**：无边框窗口、左侧栏布局、深浅主题、设置自动保存。
 
 ## 技术栈
 
 | 层 | 技术 |
 | --- | --- |
-| 桌面壳 | Tauri 2（Rust） |
+| 桌面壳 | Tauri 2 |
 | 前端 | React 19、TypeScript、React Router 7、Zustand 5 |
-| UI | shadcn/ui（Base UI 版）、Tailwind CSS 4、Lucide 图标 |
-| 网络 / 下载 | reqwest（rustls）、tokio、WBI 签名（md5） |
-| 合并 | ffmpeg（`-c copy`，可选） |
+| UI | shadcn/ui（Base UI）、Tailwind CSS 4、Lucide |
+| 后端 | Rust、reqwest（rustls）、tokio、md5（WBI 签名） |
+| 媒体处理 | ffmpeg（`-c copy` 合并 / concat） |
 | 包管理 | pnpm |
 
-## 目录结构
+## 快速开始
 
-```
-src/
-  components/
-    ui/               # shadcn/ui 组件（通过 CLI 生成）
-    title-bar.tsx     # 无边框窗口标题栏
-    sidebar.tsx       # 左侧导航
-    download-events.tsx # 下载事件 → Zustand / Toast
-  pages/
-    home.tsx          # 解析 + 下载配置
-    downloads.tsx     # 任务列表与进度
-    account.tsx       # 扫码登录
-    settings.tsx      # 设置
-  stores/             # zustand（任务 / 登录 / 设置 / 主题）
-  lib/                # IPC API、类型、格式化工具
-src-tauri/
-  src/
-    lib.rs            # Tauri 命令注册与 AppState
-    bili.rs           # 设备指纹、WBI 签名、元数据、playurl、扫码登录
-    download.rs       # 流下载、进度事件、ffmpeg 合并
-    settings.rs       # 本地设置持久化
-  tests/api.rs        # 真实 API / 下载集成测试（默认 ignore）
-docs/API.md           # 实测 API 文档
-templates/main-box.html # 初始界面参考稿
-```
+### 环境要求
 
-## 开发
+- Node.js ≥ 20、pnpm
+- Rust stable
+- Windows 需 WebView2（Windows 11 自带）
+- DASH 模式需要 [ffmpeg](https://ffmpeg.org/)；也可以只使用单文件 MP4 模式
 
-环境要求：Node.js ≥ 20、pnpm、Rust stable、Windows 需 WebView2（Win11 自带）。
-DASH 模式还需要 `ffmpeg` 在 PATH 中，或在设置页填写绝对路径。
+### 开发运行
 
 ```bash
+# 在项目根目录
 pnpm install
-pnpm tauri dev        # 启动桌面应用（Vite + Rust 热更新）
+pnpm tauri dev
 ```
 
-只跑前端（浏览器里无法调用 Tauri IPC，仅供样式调试）：
+### 构建
 
 ```bash
-pnpm dev
+pnpm build          # 类型检查 + 前端打包
+pnpm tauri build    # 生成安装包（src-tauri/target/release/bundle）
 ```
 
-## 构建
-
-```bash
-pnpm build            # 类型检查 + 前端打包
-pnpm tauri build      # 生成安装包（src-tauri/target/release/bundle）
-```
-
-## 测试
+### 测试
 
 ```bash
 cd src-tauri
-cargo test                                   # 单元测试（无网络）
+cargo test
+```
+
+真实接口与下载集成测试默认忽略，需要网络和 ffmpeg：
+
+```bash
 cargo test --test api -- --ignored --nocapture --test-threads=1
 ```
 
-第二条命令会访问真实 B 站接口并下载一个约 20MB 的测试视频（含 ffmpeg 合并），
-用于验证 WBI 签名、设备指纹、DASH/MP4 取流和下载链路。
+## 使用说明
 
-## 实现要点
+1. 粘贴视频链接或 BV 号，点击「解析」。
+2. 多 P 视频会显示分 P 列表，勾选需要下载的分 P；点击「全选(A)」可一次选中全部。
+3. 选择下载模式、画质、编码与音轨。
+4. 点击「下载」后会在下载任务页入队；并发数已满的任务显示为「排队中」。
+5. 需要 1080P 及以上画质时，请先在「账号」页扫码登录。
 
-- **所有 B 站请求都在 Rust 侧完成**，绕开 WebView 的 CORS / Referer 限制；
-  Cookie 与 buvid 写入应用数据目录，冷启动复用。
-- **WBI 签名**：`nav` 获取 `img_key/sub_key`，固定混淆表生成 `mixin_key`，
-  参数按字典序拼接后 MD5 得 `w_rid`，密钥缓存 12 小时，`-403` 时自动刷新重试一次。
-- **画质判断**：以 `dash.video[].id` 的真实最大值计算可用画质，不用 `data.quality`。
-- **CDN 防盗链**：所有流请求带 `Referer: https://www.bilibili.com`；
-  主地址失败时依次尝试 `backupUrl`。
-- **进度事件**：Rust 每 ~160ms 节流发送 `download:progress`，前端 Zustand 合并更新；
-  批量任务通过 tokio Semaphore 限制并发，等待中的任务显示「排队中」。
-- **设置自动保存**：设置页采用「标签 + 控件」行式布局，修改 500ms 后自动写入本机。
-- **合并**：`ffmpeg -i video.m4s -i audio.m4s -c copy -movflags +faststart`，
-  写入标题与原视频链接元数据；mp4 多分段时走 concat demuxer。
+## 项目结构
 
-## MVP 范围与已知限制
+```text
+src/
+  components/          # 布局组件与 shadcn/ui 组件
+  pages/               # 首页 / 下载 / 账号 / 设置
+  stores/              # Zustand：任务、登录、设置、主题
+  lib/                 # IPC 封装、类型、格式化工具
+src-tauri/
+  src/
+    bili.rs            # 设备指纹、WBI 签名、元数据、playurl、登录
+    download.rs        # 流式下载、进度事件、ffmpeg 合并
+    settings.rs        # 本地设置持久化
+    lib.rs             # AppState 与 IPC 命令注册
+  tests/api.rs         # 真实接口 / 下载集成测试（默认 ignore）
+  icons/               # 桌面端图标
+docs/
+  API.md               # 实测 B 站接口文档
+  screenshots/         # README 截图
+public/bdd-icon.png    # 应用图标 / favicon
+```
 
-- 仅支持 UGC 视频（BV/av）。番剧 / 影视（PGC）、课程暂未实现。
-- 未登录时 DASH 实际最高 480P；登录后 1080P；4K/8K/HDR 需要大会员。
-- `is_drm: true` 的番剧无法下载（不做解密）。
-- 暂不下载弹幕与字幕；单任务为顺序下载，不做分片并发 / 断点续传（多任务可并发，上限见设置）。
-- 短链解析依赖 `b23.tv` 跟随跳转，若被风控可能失败，可直接使用 BV 号。
+## 实现说明
+
+- **所有 B 站请求在 Rust 侧完成**，绕开 WebView 的 CORS / Referer 限制；Cookie 与 buvid 持久化到本机。
+- **WBI 签名**：`nav` 获取密钥，固定混淆表 + MD5 生成 `w_rid`，缓存 12 小时，`-403` 时自动刷新重试。
+- **画质判断**：以 `dash.video[].id` 实际存在的码流为准，不依赖会虚报的 `data.quality`。
+- **CDN 容灾**：流请求统一携带 `Referer`，优先使用 `baseUrl`，失败时依次尝试 `backupUrl`。
+- **下载并发**：后端使用 tokio Semaphore 限制同时下载数，等待任务通过 `queued` 事件通知前端。
+- **进度事件**：Rust 约每 160ms 节流发送 `download:progress`，前端合并到 Zustand 任务状态。
+- **设置自动保存**：修改后约 500ms 写入本地，包含下载目录、画质、音轨、编码、并发数与通知开关。
+
+## 本地数据
+
+- 应用数据：`%APPDATA%\com.echoism.bilibili-down\`
+  - `cookies.json`：buvid、SESSDATA、refresh_token
+  - `settings.json`：下载目录与默认选项
+- 默认下载目录：`<用户 Downloads>\bilibili-down`
+- 登录 Cookie 仅保存在本机，不会上传；退出登录会清除会话。
+
+## 已知限制
+
+- 仅支持 UGC 视频（BV / av）；番剧、影视、课程（PGC）暂未实现。
+- DRM 加密内容不支持下载。
+- 匿名状态下 DASH 实际最高 480P，需要登录解锁 1080P，大会员解锁 4K / 8K / HDR。
+- 暂不下载弹幕与字幕。
+- 单任务为顺序下载，不支持分片并发和断点续传；应用重启后进行中的任务不会续传。
+- ffmpeg 未随应用分发，需要用户自行安装或配置路径。
+- 目前以 Windows 11 为主要开发与测试平台，macOS / Linux 仅保留构建目标。
+
+## FAQ
+
+**为什么匿名只能拿到 480P？**  
+B 站对未登录用户限制 DASH 码率；登录后可获取 1080P，大会员可获取更高画质。
+
+**DASH 和单文件 MP4 怎么选？**  
+需要最高画质选 DASH（需 ffmpeg）；没有 ffmpeg 或只想要一个可直接播放的文件，选单文件 MP4。
+
+**提示找不到 ffmpeg？**  
+在设置页填写 ffmpeg 可执行文件的绝对路径，或将其加入系统 `PATH` 后重新检测。
+
+**下载失败 / 403？**  
+播放地址有效期约 2 小时。重新解析获取新地址；若提示风控，请降低请求频率并稍后再试。
 
 ## 合规
 
-本项目仅为技术学习与个人备份场景提供参考实现，请勿用于商业分发、
-绕过付费墙或批量抓取。所有内容版权归原作者及哔哩哔哩所有。
+本项目仅用于个人学习、技术研究与备份场景。请勿用于商业分发、批量抓取或绕过付费墙。所有视频版权归原作者及哔哩哔哩所有，使用前请遵守相关服务条款与法律法规。
+
+## 致谢
+
+[Tauri](https://tauri.app/) · [React](https://react.dev/) · [shadcn/ui](https://ui.shadcn.com/) · [Tailwind CSS](https://tailwindcss.com/) · [Lucide](https://lucide.dev/) · [ffmpeg](https://ffmpeg.org/)
