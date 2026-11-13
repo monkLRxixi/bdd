@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import type { DownloadProgress } from "@/lib/types";
 import { useDownloadStore } from "@/stores/downloads";
+import { useSettingsStore } from "@/stores/settings";
 
 /**
  * Bridges backend download events into the task store and toast notifications.
@@ -19,6 +20,7 @@ export function DownloadEvents() {
       const task = useDownloadStore.getState().tasks[progress.id];
 
       if (progress.status === "done") {
+        if (useSettingsStore.getState().settings.notifyOnComplete === false) return;
         toast.success("下载完成", {
           description: task
             ? `${task.title}${task.isMulti ? ` · P${task.page}` : ""}`

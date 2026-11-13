@@ -20,6 +20,8 @@ pub struct AppState {
     pub wbi: Mutex<Option<bili::WbiKeys>>,
     pub settings: Mutex<Settings>,
     pub cancel: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// Limits how many downloads run at the same time.
+    pub download_sem: Mutex<Arc<tokio::sync::Semaphore>>,
     pub user: Mutex<Option<UserInfo>>,
     pub data_dir: PathBuf,
 }
@@ -107,7 +109,15 @@ async fn start_download(app: AppHandle, req: DownloadRequest) -> Result<(), Stri
         .unwrap()
         .insert(id.clone(), cancel.clone());
 
+    let semaphore = state.download_sem.lock().unwrap().clone();
+
     tauri::async_runtime::spawn(async move {
+        download::notify_queued(&app, &id);
+        let permit = semaphore.acquire().await;
+        if permit.is_err() {
+            state.cancel.lock().unwrap().remove(&id);
+            return;
+        }
         download::run(app, state.clone(), req, cancel).await;
         state.cancel.lock().unwrap().remove(&id);
     });
@@ -167,6 +177,11 @@ fn save_settings(state: State<'_, Arc<AppState>>, settings: Settings) -> Result<
         let mut guard = state.settings.lock().unwrap();
         *guard = settings.clone();
     }
+    // Apply the new download concurrency right away. Downloads that already
+    // hold a permit from the old semaphore simply finish normally.
+    *state.download_sem.lock().unwrap() = Arc::new(tokio::sync::Semaphore::new(
+        settings.concurrency.clamp(1, 4) as usize,
+    ));
     settings::save(&state.data_dir, &settings)
 }
 
@@ -249,12 +264,17 @@ pub fn run() {
                 .connect_timeout(Duration::from_secs(15))
                 .build()?;
 
+            let semaphore = Arc::new(tokio::sync::Semaphore::new(
+                loaded.concurrency.clamp(1, 4) as usize
+            ));
+
             let state = Arc::new(AppState {
                 http,
                 cookies: Mutex::new(cookies),
                 wbi: Mutex::new(None),
                 settings: Mutex::new(loaded),
                 cancel: Mutex::new(HashMap::new()),
+                download_sem: Mutex::new(semaphore),
                 user: Mutex::new(None),
                 data_dir,
             });

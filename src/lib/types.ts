@@ -93,6 +93,8 @@ export interface Settings {
   audioId: number;
   saveCover: boolean;
   ffmpegPath: string;
+  notifyOnComplete: boolean;
+  concurrency: number;
 }
 
 export type DownloadMode = "dash" | "mp4";

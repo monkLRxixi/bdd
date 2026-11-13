@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   AlertCircle,
   BadgeCheck,
+  ChevronDown,
   ClipboardPaste,
   Download,
   Film,
@@ -23,6 +24,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -184,7 +186,11 @@ export function HomePage() {
   const [error, setError] = useState("");
 
   const [video, setVideo] = useState<VideoInfo | null>(null);
-  const [pageIndex, setPageIndex] = useState(0);
+  const [selectedPages, setSelectedPages] = useState<Set<number>>(
+    () => new Set([0]),
+  );
+  const [previewIndex, setPreviewIndex] = useState(0);
+  const [listOpen, setListOpen] = useState(true);
   const [streams, setStreams] = useState<StreamsPayload | null>(null);
   const [streamsLoading, setStreamsLoading] = useState(false);
   const [streamsError, setStreamsError] = useState("");
@@ -211,7 +217,9 @@ export function HomePage() {
       setError("");
       setVideo(null);
       setStreams(null);
-      setPageIndex(0);
+      setSelectedPages(new Set([0]));
+      setPreviewIndex(0);
+      setListOpen(true);
       try {
         const target = await api.resolveTarget(text);
         const info = await api.videoInfo(target.bvid, target.aid);
@@ -228,7 +236,7 @@ export function HomePage() {
   // Fetch available streams whenever the selected part changes.
   useEffect(() => {
     if (!video) return;
-    const page = video.pages[pageIndex];
+    const page = video.pages[previewIndex];
     if (!page) return;
 
     let alive = true;
@@ -273,21 +281,62 @@ export function HomePage() {
     return () => {
       alive = false;
     };
-  }, [video, pageIndex]);
+  }, [video, previewIndex]);
 
   const quality = useMemo(
     () => streams?.qualities.find((item) => item.id === qn),
     [streams, qn],
   );
 
-  const pageItems = useMemo(
-    () =>
-      (video?.pages ?? []).map((page, index) => ({
-        value: String(index),
-        label: `P${page.page} · ${page.part || "未命名分 P"}`,
-      })),
-    [video],
-  );
+  const selectedCount = selectedPages.size;
+  const allSelected =
+    !!video && video.pages.length > 0 && selectedCount === video.pages.length;
+
+  const togglePage = (index: number) => {
+    const next = new Set(selectedPages);
+    if (next.has(index)) next.delete(index);
+    else next.add(index);
+    setSelectedPages(next);
+    if (!next.has(previewIndex) && next.size > 0) {
+      setPreviewIndex(Math.min(...next));
+    }
+  };
+
+  const toggleAll = () => {
+    if (!video) return;
+    if (selectedCount === video.pages.length) {
+      setSelectedPages(new Set());
+    } else {
+      setSelectedPages(new Set(video.pages.map((_, index) => index)));
+    }
+  };
+
+  // "A" selects/deselects every part, like the desktop client.
+  useEffect(() => {
+    if (!video?.isMulti) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "a") return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      if (selectedPages.size === video.pages.length) {
+        setSelectedPages(new Set());
+      } else {
+        setSelectedPages(new Set(video.pages.map((_, index) => index)));
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [video, selectedPages]);
 
   const qualityItems = useMemo(
     () =>
@@ -324,6 +373,7 @@ export function HomePage() {
 
   const canDownload =
     !!video &&
+    selectedCount > 0 &&
     !streamsLoading &&
     !starting &&
     (mode === "dash"
@@ -332,12 +382,16 @@ export function HomePage() {
 
   const startDownload = async () => {
     if (!video || !canDownload) return;
-    const page = video.pages[pageIndex];
-    if (!page) return;
+    const pages = video.pages.filter((_, index) => selectedPages.has(index));
+    if (pages.length === 0) return;
 
-    const id = crypto.randomUUID();
-    const request: DownloadRequest = {
-      id,
+    const qualityLabel =
+      mode === "dash"
+        ? (quality?.label ?? "高清")
+        : (streams?.mp4?.label ?? "MP4");
+
+    const requests: DownloadRequest[] = pages.map((page) => ({
+      id: crypto.randomUUID(),
       bvid: video.bvid,
       cid: page.cid,
       title: video.title,
@@ -354,28 +408,44 @@ export function HomePage() {
       sourceUrl: `https://www.bilibili.com/video/${video.bvid}${
         video.isMulti ? `?p=${page.page}` : ""
       }`,
-    };
-
-    const qualityLabel =
-      mode === "dash"
-        ? (quality?.label ?? "高清")
-        : (streams?.mp4?.label ?? "MP4");
+    }));
 
     setStarting(true);
-    // Register the task before the backend can emit its first progress event.
-    addTask(request, qualityLabel);
-    try {
-      await api.startDownload(request);
-      toast.success("已加入下载列表", {
-        description: `${video.title}${video.isMulti ? ` · P${page.page}` : ""}`,
-      });
-      navigate("/downloads");
-    } catch (err) {
-      useDownloadStore.getState().remove(id);
-      toast.error("无法开始下载", { description: errorText(err) });
-    } finally {
-      setStarting(false);
+    // Register tasks before the backend can emit their first progress events.
+    requests.forEach((request) => addTask(request, qualityLabel));
+
+    let failures = 0;
+    let firstError = "";
+    for (const request of requests) {
+      try {
+        await api.startDownload(request);
+      } catch (err) {
+        failures += 1;
+        if (!firstError) firstError = errorText(err);
+        useDownloadStore.getState().remove(request.id);
+      }
     }
+
+    if (failures === requests.length) {
+      toast.error("无法开始下载", { description: firstError });
+    } else {
+      if (failures > 0) {
+        toast.error(`${failures} 个任务启动失败`, { description: firstError });
+      } else {
+        toast.success(
+          requests.length > 1
+            ? `已加入 ${requests.length} 个下载任务`
+            : "已加入下载列表",
+          {
+            description: `${video.title}${
+              requests.length > 1 ? ` · 共 ${requests.length} 个分 P` : ""
+            }`,
+          },
+        );
+      }
+      navigate("/downloads");
+    }
+    setStarting(false);
   };
 
   return (
@@ -504,6 +574,89 @@ export function HomePage() {
               </div>
             </Card>
 
+            {/* -------------------------- part picker ------------------------- */}
+            {video.isMulti ? (
+              <Card className="gap-0 py-0">
+                <CardContent className="p-4 sm:p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setListOpen((open) => !open)}
+                      className="flex items-center gap-2 text-[13px] font-medium"
+                    >
+                      已选择
+                      <span className="text-muted-foreground tabular-nums">
+                        [ {selectedCount} / {video.pages.length} ]
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          "size-4 text-muted-foreground transition-transform",
+                          !listOpen && "-rotate-90",
+                        )}
+                      />
+                    </button>
+                    <p className="text-[11px] text-muted-foreground">
+                      共 {video.pages.length} 个分 P · 并发 {settings.concurrency} 个
+                    </p>
+                  </div>
+
+                  {listOpen ? (
+                    <>
+                      <div className="mt-3 max-h-[272px] space-y-2 overflow-y-auto pr-1">
+                        {video.pages.map((page, index) => {
+                          const checked = selectedPages.has(index);
+                          return (
+                            <label
+                              key={page.cid}
+                              htmlFor={`part-${page.cid}`}
+                              className={cn(
+                                "flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-colors",
+                                checked
+                                  ? "border-primary/30 bg-accent/60"
+                                  : "border-border bg-card hover:border-border/80 hover:bg-muted/40",
+                              )}
+                            >
+                              <Checkbox
+                                id={`part-${page.cid}`}
+                                checked={checked}
+                                onCheckedChange={() => togglePage(index)}
+                              />
+                              <span className="w-9 shrink-0 text-[11px] font-medium text-muted-foreground tabular-nums">
+                                P{page.page}
+                              </span>
+                              <span className="h-3.5 w-px shrink-0 bg-border" />
+                              <span className="min-w-0 flex-1 truncate text-[13px]">
+                                {page.part || "未命名分 P"}
+                              </span>
+                              <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                                {formatDuration(page.duration)}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between border-t border-border/70 pt-3">
+                        <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+                          <Checkbox
+                            checked={allSelected}
+                            indeterminate={
+                              !allSelected && selectedCount > 0
+                            }
+                            onCheckedChange={toggleAll}
+                          />
+                          全选(A)
+                        </label>
+                        <span className="text-[11px] text-muted-foreground">
+                          已选 {selectedCount} 个
+                        </span>
+                      </div>
+                    </>
+                  ) : null}
+                </CardContent>
+              </Card>
+            ) : null}
+
             {/* -------------------------- config card ------------------------- */}
             <Card className="gap-0 py-0">
               <CardContent className="space-y-4 p-5">
@@ -514,7 +667,10 @@ export function HomePage() {
                       {streamsLoading
                         ? "正在获取可用画质…"
                         : streams
-                          ? `共 ${streams.qualities.length} 档 DASH 画质可用`
+                          ? `共 ${streams.qualities.length} 档 DASH 画质可用` +
+                            (video.isMulti && selectedCount > 0
+                              ? ` · 已选 ${selectedCount} 个分 P`
+                              : "")
                           : "等待播放地址"}
                     </p>
                   </div>
@@ -560,29 +716,6 @@ export function HomePage() {
                     </Tabs>
 
                     <div className="grid gap-3 sm:grid-cols-2">
-                      {video.isMulti ? (
-                        <Field label="分 P">
-                          <Select
-                            value={String(pageIndex)}
-                            onValueChange={(value) => {
-                              if (value != null) setPageIndex(Number(value));
-                            }}
-                            items={pageItems}
-                          >
-                            <SelectTrigger className="h-9 w-full">
-                              <SelectValue placeholder="选择分 P" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {pageItems.map((item) => (
-                                <SelectItem key={item.value} value={item.value}>
-                                  {item.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </Field>
-                      ) : null}
-
                       {mode === "dash" ? (
                         <Field
                           label="画质"
@@ -726,7 +859,11 @@ export function HomePage() {
                     ) : (
                       <Download />
                     )}
-                    {starting ? "正在创建任务…" : "开始下载"}
+                    {starting
+                      ? "正在创建任务…"
+                      : selectedCount > 1
+                        ? `下载 ${selectedCount} 个分P`
+                        : "开始下载"}
                   </Button>
                 </div>
               </CardContent>

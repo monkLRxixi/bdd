@@ -362,6 +362,9 @@ async fn run_inner(
     cancel: &AtomicBool,
     temps: &mut Vec<PathBuf>,
 ) -> Result<PathBuf, String> {
+    if cancel.load(Ordering::Relaxed) {
+        return Err(CANCELED.to_string());
+    }
     let settings = state.settings.lock().unwrap().clone();
 
     let base_dir = if req.dir.trim().is_empty() {
@@ -513,6 +516,24 @@ async fn run_inner(
     }
 
     Ok(out)
+}
+
+/// Tell the UI that a task is waiting for a free download slot.
+pub fn notify_queued(app: &AppHandle, id: &str) {
+    let reporter = Reporter {
+        app: Some(app.clone()),
+        id: id.to_string(),
+    };
+    reporter.emit(
+        "queued",
+        "queued",
+        0,
+        0,
+        0.0,
+        0,
+        "排队中，等待下载槽位…",
+        None,
+    );
 }
 
 /// Download without emitting events. Used by tests and headless tooling.

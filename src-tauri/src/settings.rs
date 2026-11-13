@@ -17,6 +17,10 @@ pub struct Settings {
     pub save_cover: bool,
     /// ffmpeg executable. "ffmpeg" means: look it up on PATH.
     pub ffmpeg_path: String,
+    /// Show a toast when a download finishes.
+    pub notify_on_complete: bool,
+    /// Maximum number of simultaneous downloads (1-4).
+    pub concurrency: u32,
 }
 
 impl Default for Settings {
@@ -28,6 +32,8 @@ impl Default for Settings {
             audio_id: 30280,
             save_cover: true,
             ffmpeg_path: "ffmpeg".to_string(),
+            notify_on_complete: true,
+            concurrency: 2,
         }
     }
 }

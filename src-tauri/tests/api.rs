@@ -33,6 +33,7 @@ fn test_state(dir: &Path) -> Arc<AppState> {
             ..Settings::default()
         }),
         cancel: Mutex::new(HashMap::new()),
+        download_sem: Mutex::new(Arc::new(tokio::sync::Semaphore::new(2))),
         user: Mutex::new(None),
         data_dir: dir.to_path_buf(),
     })

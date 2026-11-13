@@ -10,6 +10,8 @@ const fallback: Settings = {
   audioId: 30280,
   saveCover: true,
   ffmpegPath: "ffmpeg",
+  notifyOnComplete: true,
+  concurrency: 2,
 };
 
 interface SettingsStore {
@@ -55,6 +57,7 @@ function applyTheme(theme: Theme) {
 
 interface UiStore {
   theme: Theme;
+  setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
 }
 
@@ -63,6 +66,10 @@ applyTheme(startTheme);
 
 export const useUiStore = create<UiStore>()((set) => ({
   theme: startTheme,
+  setTheme: (theme) => {
+    applyTheme(theme);
+    set({ theme });
+  },
   toggleTheme: () =>
     set((state) => {
       const theme = state.theme === "light" ? "dark" : "light";

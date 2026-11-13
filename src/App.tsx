@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import { DownloadEvents } from "@/components/download-events";
 import { Sidebar } from "@/components/sidebar";
@@ -12,6 +12,14 @@ import { HomePage } from "@/pages/home";
 import { SettingsPage } from "@/pages/settings";
 import { useAuthStore } from "@/stores/auth";
 import { useSettingsStore } from "@/stores/settings";
+
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    document.querySelector("main")?.scrollTo({ top: 0 });
+  }, [pathname]);
+  return null;
+}
 
 export default function App() {
   useEffect(() => {
@@ -26,6 +34,7 @@ export default function App() {
         <div className="flex min-h-0 flex-1">
           <Sidebar />
           <main className="min-w-0 flex-1 overflow-y-auto">
+            <ScrollToTop />
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/downloads" element={<DownloadsPage />} />

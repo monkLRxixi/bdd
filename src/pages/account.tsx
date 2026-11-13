@@ -122,7 +122,11 @@ export function AccountPage() {
           <Card className="gap-0 py-0">
             <CardContent className="flex flex-col gap-5 p-6 sm:flex-row sm:items-center">
               <Avatar size="lg" className="size-16 after:border-primary/20">
-                <AvatarImage src={user.face} alt={user.uname} />
+                <AvatarImage
+                  src={user.face}
+                  alt={user.uname}
+                  referrerPolicy="no-referrer"
+                />
                 <AvatarFallback className="text-lg">
                   {user.uname.slice(0, 1) || "B"}
                 </AvatarFallback>

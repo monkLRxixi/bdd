@@ -52,7 +52,11 @@ function RailLink({
           >
             {avatar ? (
               <Avatar size="sm" className="size-6">
-                <AvatarImage src={avatar.src} alt={avatar.name} />
+                <AvatarImage
+                  src={avatar.src}
+                  alt={avatar.name}
+                  referrerPolicy="no-referrer"
+                />
                 <AvatarFallback className="text-[10px]">
                   {avatar.name.slice(0, 1) || "B"}
                 </AvatarFallback>

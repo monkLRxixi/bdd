@@ -1,87 +1,138 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openPath } from "@tauri-apps/plugin-opener";
 import {
-  AlertCircle,
   CheckCircle2,
-  Download,
   FolderOpen,
-  HardDriveDownload,
+  Info,
   Loader2,
-  Save,
-  SlidersHorizontal,
-  Terminal,
+  Lock,
+  TriangleAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { api, errorText } from "@/lib/api";
 import type { Settings } from "@/lib/types";
-import { useSettingsStore } from "@/stores/settings";
+import { useAuthStore } from "@/stores/auth";
+import { useSettingsStore, useUiStore } from "@/stores/settings";
 import { cn } from "@/lib/utils";
 
-const qualityItems = [
-  { value: "127", label: "最高可用画质" },
-  { value: "80", label: "1080P 高清" },
-  { value: "64", label: "720P 高清" },
-  { value: "32", label: "480P 清晰" },
-  { value: "16", label: "360P 流畅" },
+const qualityOptions = [
+  { value: 16, label: "360P" },
+  { value: 32, label: "480P" },
+  { value: 64, label: "720P" },
+  { value: 80, label: "1080P", need: "login" as const },
+  { value: 112, label: "1080P 高码", need: "vip" as const },
+  { value: 120, label: "4K", need: "vip" as const },
+  { value: 127, label: "最高可用" },
 ];
 
-const codecItems = [
-  { value: "avc1", label: "H.264 · 兼容性最好" },
-  { value: "hev1", label: "H.265 · 体积更小" },
-  { value: "av01", label: "AV1 · 最新编码" },
+const audioOptions = [
+  { value: 30216, label: "64K" },
+  { value: 30232, label: "132K" },
+  { value: 30280, label: "192K" },
 ];
 
-const audioItems = [
-  { value: "30280", label: "192K 高音质" },
-  { value: "30232", label: "132K 标准" },
-  { value: "30216", label: "64K 流畅" },
+const codecOptions = [
+  { value: "avc1", label: "AVC", note: "H.264 · 兼容性最好" },
+  { value: "av01", label: "AV1", note: "体积更小 · 较新播放器" },
+  { value: "hev1", label: "HEVC", note: "H.265 · 压缩效率高" },
 ];
 
-function SectionHeader({
-  icon,
-  title,
-  description,
+function SettingRow({
+  label,
+  children,
 }: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
+  label: string;
+  children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start gap-3">
-      <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent text-primary">
-        {icon}
+    <div className="grid gap-2 sm:grid-cols-[92px_1fr] sm:gap-8">
+      <div className="pt-1 text-[13px] font-medium text-muted-foreground">
+        {label}
       </div>
-      <div>
-        <h2 className="text-sm font-medium">{title}</h2>
-        <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-          {description}
-        </p>
-      </div>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }
+
+function CheckOption({
+  checked,
+  onCheckedChange,
+  disabled,
+  title,
+  children,
+}: {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  disabled?: boolean;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label
+      title={title}
+      className={cn(
+        "inline-flex items-center gap-2 text-[13px]",
+        disabled ? "cursor-not-allowed opacity-40" : "cursor-pointer",
+      )}
+    >
+      <Checkbox
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={(value) => onCheckedChange(value)}
+      />
+      <span>{children}</span>
+    </label>
+  );
+}
+
+function TextButton({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Button
+      variant="link"
+      size="xs"
+      onClick={onClick}
+      className="h-auto shrink-0 px-0 text-primary"
+    >
+      {children}
+    </Button>
+  );
+}
+
+type SaveState = "idle" | "pending" | "saving" | "saved" | "error";
 
 export function SettingsPage() {
   const settings = useSettingsStore((state) => state.settings);
   const loaded = useSettingsStore((state) => state.loaded);
   const saveSettings = useSettingsStore((state) => state.save);
 
+  const user = useAuthStore((state) => state.user);
+  const theme = useUiStore((state) => state.theme);
+  const setTheme = useUiStore((state) => state.setTheme);
+
   const [draft, setDraft] = useState<Settings>(settings);
-  const [saving, setSaving] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [saveError, setSaveError] = useState("");
   const [ffmpeg, setFfmpeg] = useState<{
     state: "idle" | "checking" | "ok" | "error";
     message: string;
@@ -99,6 +150,41 @@ export function SettingsPage() {
   const update = <K extends keyof Settings>(key: K, value: Settings[K]) =>
     setDraft((current) => ({ ...current, [key]: value }));
 
+  // Auto-save, like the desktop client's settings page.
+  useEffect(() => {
+    if (!loaded) return;
+    if (!dirty) {
+      setSaveState((current) => (current === "pending" ? "idle" : current));
+      return;
+    }
+    setSaveState("pending");
+    const timer = window.setTimeout(async () => {
+      setSaveState("saving");
+      try {
+        await saveSettings(draft);
+        setSaveState("saved");
+        setSaveError("");
+      } catch (error) {
+        setSaveState("error");
+        setSaveError(errorText(error));
+      }
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [draft, dirty, loaded, saveSettings]);
+
+  // Flush pending edits when leaving the page.
+  const latest = useRef({ draft, dirty, loaded });
+  latest.current = { draft, dirty, loaded };
+  useEffect(
+    () => () => {
+      const current = latest.current;
+      if (current.loaded && current.dirty) {
+        useSettingsStore.getState().save(current.draft).catch(() => {});
+      }
+    },
+    [],
+  );
+
   const pickDirectory = async () => {
     try {
       const selected = await open({
@@ -112,6 +198,18 @@ export function SettingsPage() {
     }
   };
 
+  const openDirectory = async () => {
+    if (!draft.downloadDir) {
+      toast("请先选择下载目录");
+      return;
+    }
+    try {
+      await openPath(draft.downloadDir);
+    } catch (error) {
+      toast.error("无法打开目录", { description: errorText(error) });
+    }
+  };
+
   const checkFfmpeg = async () => {
     setFfmpeg({ state: "checking", message: "正在检测 ffmpeg…" });
     try {
@@ -122,205 +220,298 @@ export function SettingsPage() {
     }
   };
 
-  const save = async () => {
-    setSaving(true);
-    try {
-      await saveSettings(draft);
-      toast.success("设置已保存");
-    } catch (error) {
-      toast.error("保存失败", { description: errorText(error) });
-    } finally {
-      setSaving(false);
-    }
-  };
+  const can1080 = !!user;
+  const canVip = !!user?.vip;
 
   return (
     <div className="mx-auto w-full max-w-[900px] px-6 py-8 sm:px-10">
-      <header>
-        <h1 className="text-[22px] font-semibold tracking-tight">设置</h1>
-        <p className="mt-1 text-xs text-muted-foreground">
-          下载目录、默认画质与合并工具。设置会自动保存在本机。
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h1 className="text-[22px] font-semibold tracking-tight">设置</h1>
+          <p className="mt-1 text-xs text-muted-foreground">
+            所有修改会自动保存，配置仅保存在本机。
+          </p>
+        </div>
+        <span
+          className={cn(
+            "inline-flex items-center gap-1.5 text-[11px] text-muted-foreground",
+            saveState === "error" && "text-destructive",
+          )}
+        >
+          {saveState === "saving" || saveState === "pending" ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : saveState === "error" ? (
+            <TriangleAlert className="size-3.5" />
+          ) : (
+            <CheckCircle2 className="size-3.5 text-primary" />
+          )}
+          {saveState === "pending"
+            ? "待保存…"
+            : saveState === "saving"
+              ? "保存中…"
+              : saveState === "saved"
+                ? "已自动保存"
+                : saveState === "error"
+                  ? saveError || "保存失败"
+                  : "自动保存已开启"}
+        </span>
       </header>
 
-      <div className="mt-6 space-y-4">
-        <Card className="gap-0 py-0">
-          <CardContent className="space-y-4 p-6">
-            <SectionHeader
-              icon={<FolderOpen className="size-4" />}
-              title="存储位置"
-              description="下载完成的视频会保存在这个目录中，多 P 视频会自动建立同名文件夹。"
+      <div className="mt-9 space-y-6">
+        <SettingRow label="通知">
+          <div className="flex flex-wrap gap-x-6 gap-y-2">
+            <CheckOption
+              checked={draft.notifyOnComplete}
+              onCheckedChange={(checked) =>
+                update("notifyOnComplete", checked)
+              }
+            >
+              下载完成提示
+            </CheckOption>
+          </div>
+        </SettingRow>
+
+        <SettingRow label="存储">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <Input
+              value={draft.downloadDir}
+              onChange={(event) => update("downloadDir", event.target.value)}
+              placeholder="选择下载目录…"
+              className="h-8 w-full max-w-[420px] font-mono text-xs"
             />
-            <div className="flex gap-2">
-              <Input
-                value={draft.downloadDir}
-                onChange={(event) => update("downloadDir", event.target.value)}
-                placeholder="选择一个下载目录…"
-                className="h-9 flex-1 font-mono text-xs"
-              />
-              <Button variant="outline" onClick={pickDirectory} className="shrink-0">
-                <FolderOpen />
-                浏览
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+            <TextButton onClick={pickDirectory}>更改</TextButton>
+            <TextButton onClick={openDirectory}>打开目录</TextButton>
+          </div>
+        </SettingRow>
 
-        <Card className="gap-0 py-0">
-          <CardContent className="space-y-5 p-6">
-            <SectionHeader
-              icon={<SlidersHorizontal className="size-4" />}
-              title="下载偏好"
-              description="解析视频时默认选中这些选项，仍可在首页单独调整。"
-            />
+        <SettingRow label="功能">
+          <div className="flex flex-wrap gap-x-6 gap-y-2">
+            <CheckOption
+              checked={draft.saveCover}
+              onCheckedChange={(checked) => update("saveCover", checked)}
+            >
+              封面
+            </CheckOption>
+            <CheckOption
+              checked={theme === "dark"}
+              onCheckedChange={(checked) =>
+                setTheme(checked ? "dark" : "light")
+              }
+            >
+              深色模式
+            </CheckOption>
+          </div>
+        </SettingRow>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">默认画质</Label>
-                <Select
-                  value={String(draft.qn)}
-                  onValueChange={(value) => value != null && update("qn", Number(value))}
-                  items={qualityItems}
-                >
-                  <SelectTrigger className="h-9 w-full">
-                    <SelectValue placeholder="选择画质" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {qualityItems.map((item) => (
-                      <SelectItem key={item.value} value={item.value}>
-                        {item.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">默认编码</Label>
-                <Select
-                  value={draft.codec}
-                  onValueChange={(value) => update("codec", value ?? "avc1")}
-                  items={codecItems}
-                >
-                  <SelectTrigger className="h-9 w-full">
-                    <SelectValue placeholder="选择编码" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {codecItems.map((item) => (
-                      <SelectItem key={item.value} value={item.value}>
-                        {item.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">默认音轨</Label>
-                <Select
-                  value={String(draft.audioId)}
-                  onValueChange={(value) => value != null && update("audioId", Number(value))}
-                  items={audioItems}
-                >
-                  <SelectTrigger className="h-9 w-full">
-                    <SelectValue placeholder="选择音轨" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {audioItems.map((item) => (
-                      <SelectItem key={item.value} value={item.value}>
-                        {item.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex items-end">
-                <label className="flex h-9 w-full cursor-pointer items-center justify-between rounded-lg border border-border bg-muted/30 px-3 text-xs">
-                  <span className="inline-flex items-center gap-2">
-                    <Download className="size-3.5 text-muted-foreground" />
-                    同时保存视频封面
-                  </span>
-                  <Switch
-                    size="sm"
-                    checked={draft.saveCover}
-                    onCheckedChange={(checked) => update("saveCover", checked)}
-                  />
-                </label>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="gap-0 py-0">
-          <CardContent className="space-y-4 p-6">
-            <SectionHeader
-              icon={<Terminal className="size-4" />}
-              title="视频合并工具"
-              description="DASH 模式需要 ffmpeg 将音视频合并为 MP4。填写 ffmpeg 可执行文件路径，或保留 ffmpeg 使用系统 PATH。"
-            />
-            <div className="flex gap-2">
-              <Input
-                value={draft.ffmpegPath}
-                onChange={(event) => update("ffmpegPath", event.target.value)}
-                placeholder="ffmpeg 或 D:\\ffmpeg\\bin\\ffmpeg.exe"
-                className="h-9 flex-1 font-mono text-xs"
-              />
-              <Button
-                variant="outline"
-                onClick={checkFfmpeg}
-                disabled={ffmpeg.state === "checking"}
-                className="shrink-0"
+        <SettingRow label="音质">
+          <RadioGroup
+            value={String(draft.audioId)}
+            onValueChange={(value) => {
+              if (value != null) update("audioId", Number(value));
+            }}
+            className="flex w-full flex-wrap gap-x-6 gap-y-2"
+          >
+            {audioOptions.map((option) => (
+              <label
+                key={option.value}
+                className="flex cursor-pointer items-center gap-2 text-[13px]"
               >
-                {ffmpeg.state === "checking" ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <Terminal />
-                )}
-                检测
-              </Button>
-            </div>
+                <RadioGroupItem value={String(option.value)} />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </RadioGroup>
+        </SettingRow>
 
-            {ffmpeg.state === "ok" ? (
-              <div className="flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] text-primary">
-                <CheckCircle2 className="mt-0.5 size-3.5 shrink-0" />
-                <span className="break-all">{ffmpeg.message}</span>
-              </div>
+        <SettingRow label="画质">
+          <RadioGroup
+            value={String(draft.qn)}
+            onValueChange={(value) => {
+              if (value != null) update("qn", Number(value));
+            }}
+            className="flex w-full flex-wrap gap-x-6 gap-y-2"
+          >
+            {qualityOptions.map((option) => {
+              const locked =
+                option.need === "login"
+                  ? !can1080
+                  : option.need === "vip"
+                    ? !canVip
+                    : false;
+              return (
+                <label
+                  key={option.value}
+                  title={
+                    locked
+                      ? option.need === "vip"
+                        ? "需要大会员"
+                        : "需要登录"
+                      : undefined
+                  }
+                  className={cn(
+                    "flex items-center gap-2 text-[13px]",
+                    locked
+                      ? "cursor-not-allowed text-muted-foreground/60"
+                      : "cursor-pointer",
+                  )}
+                >
+                  <RadioGroupItem
+                    value={String(option.value)}
+                    disabled={locked}
+                  />
+                  <span>{option.label}</span>
+                  {locked ? <Lock className="size-3 opacity-70" /> : null}
+                </label>
+              );
+            })}
+          </RadioGroup>
+          <p className="mt-2 text-[11px] text-muted-foreground/70">
+            未登录时 DASH 实际最高 480P；登录后解锁 1080P，大会员解锁更高画质。
+          </p>
+        </SettingRow>
+
+        <SettingRow label="编码">
+          <RadioGroup
+            value={draft.codec}
+            onValueChange={(value) => {
+              if (value != null) update("codec", value);
+            }}
+            className="flex w-full flex-wrap gap-x-6 gap-y-2"
+          >
+            {codecOptions.map((option) => (
+              <label
+                key={option.value}
+                className="flex cursor-pointer items-center gap-2 text-[13px]"
+              >
+                <RadioGroupItem value={option.value} />
+                <span className="inline-flex items-center gap-1" title={option.note}>
+                  {option.label}
+                  <Info className="size-3 text-muted-foreground/70" />
+                </span>
+              </label>
+            ))}
+          </RadioGroup>
+          <p className="mt-2 text-[11px] text-muted-foreground/70">
+            AVC（H.264）兼容性最好；HEVC / AV1 体积更小。下载时会自动回退到可用编码。
+          </p>
+        </SettingRow>
+
+        <SettingRow label="合并">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <Input
+              value={draft.ffmpegPath}
+              onChange={(event) => update("ffmpegPath", event.target.value)}
+              placeholder="ffmpeg 或 D:\\ffmpeg\\bin\\ffmpeg.exe"
+              className="h-8 w-full max-w-[320px] font-mono text-xs"
+            />
+            <TextButton onClick={checkFfmpeg}>检测</TextButton>
+            {ffmpeg.state === "checking" ? (
+              <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+            ) : ffmpeg.state === "ok" ? (
+              <span className="max-w-[280px] truncate text-[11px] text-primary">
+                {ffmpeg.message}
+              </span>
             ) : ffmpeg.state === "error" ? (
-              <Alert variant="destructive">
-                <AlertCircle />
-                <AlertDescription className="text-xs">
-                  {ffmpeg.message}。你仍然可以使用「单文件 MP4」模式下载（最高
-                  720P，无需合并）。
-                </AlertDescription>
-              </Alert>
+              <span className="text-[11px] text-destructive">
+                {ffmpeg.message}
+              </span>
             ) : (
-              <p className="text-[11px] text-muted-foreground/80">
-                提示：如果使用单文件 MP4 模式，可以不安装 ffmpeg。
-              </p>
+              <span className="text-[11px] text-muted-foreground/70">
+                DASH 模式需要 ffmpeg，单文件 MP4 模式不需要
+              </span>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </SettingRow>
+
+        <SettingRow label="命名">
+          <div className="flex flex-wrap items-center gap-2 text-[13px]">
+            <code className="rounded-md border border-border bg-muted/40 px-2 py-1 font-mono text-[11px]">
+              %title%
+            </code>
+            <span className="text-[11px] text-muted-foreground">
+              单 P：标题.mp4 · 多 P：标题/P01 分P标题.mp4
+            </span>
+          </div>
+        </SettingRow>
+
+        <SettingRow label="并发">
+          <RadioGroup
+            value={String(draft.concurrency)}
+            onValueChange={(value) => {
+              if (value != null) update("concurrency", Number(value));
+            }}
+            className="flex w-full flex-wrap gap-x-6 gap-y-2"
+          >
+            {[1, 2, 3, 4].map((value) => (
+              <label
+                key={value}
+                className="flex cursor-pointer items-center gap-2 text-[13px]"
+              >
+                <RadioGroupItem value={String(value)} />
+                <span>{value} 个</span>
+              </label>
+            ))}
+          </RadioGroup>
+          <p className="mt-2 text-[11px] text-muted-foreground/70">
+            同时下载的任务数量。任务较多时建议 2 个以内，避免触发站点限流。
+          </p>
+        </SettingRow>
+
+        <SettingRow label="版本">
+          <div className="flex flex-wrap items-center gap-3">
+            <Badge variant="secondary" className="font-mono">
+              0.1.0
+            </Badge>
+            <Dialog>
+              <DialogTrigger
+                render={
+                  <Button
+                    variant="link"
+                    size="xs"
+                    className="h-auto px-0 text-primary"
+                  />
+                }
+              >
+                详情
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>BiliDown 0.1.0</DialogTitle>
+                  <DialogDescription>
+                    Tauri 2 + React 19 + shadcn/ui 构建的 B 站视频下载器。
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3 text-xs text-muted-foreground">
+                  <div className="flex justify-between gap-4">
+                    <span>应用数据</span>
+                    <span className="text-right font-mono break-all">
+                      %APPDATA%\com.echoism.bilibili-down
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span>下载目录</span>
+                    <span className="text-right font-mono break-all">
+                      {settings.downloadDir || "默认下载目录"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span>登录状态</span>
+                    <span>{user ? `已登录 · ${user.uname}` : "未登录"}</span>
+                  </div>
+                  <p className="border-t border-border/70 pt-3 leading-relaxed">
+                    仅供个人学习与备份使用，请遵守哔哩哔哩用户协议与著作权法。
+                    Cookie 仅保存在本机，不会上传。
+                  </p>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </SettingRow>
       </div>
 
-      <div
-        className={cn(
-          "sticky bottom-0 z-10 mt-6 flex items-center justify-between gap-3 border-t border-border/70 bg-background/85 py-3 backdrop-blur",
-          "-mx-6 px-6 sm:-mx-10 sm:px-10",
-        )}
-      >
-        <span className="text-[11px] text-muted-foreground">
-          {loaded ? (dirty ? "有未保存的修改" : "所有设置已保存") : "正在加载设置…"}
-        </span>
-        <Button onClick={save} disabled={!dirty || saving}>
-          {saving ? <Loader2 className="animate-spin" /> : <Save />}
-          保存设置
-        </Button>
-      </div>
-
-      <footer className="mt-6 flex items-center gap-2 border-t border-border/60 pt-4 text-[11px] text-muted-foreground/70">
-        <HardDriveDownload className="size-3.5" />
-        BiliDown MVP · 仅供个人学习与备份使用，请遵守哔哩哔哩用户协议与著作权法。
+      <footer className="mt-10 flex items-center gap-2 border-t border-border/60 pt-4 text-[11px] text-muted-foreground/70">
+        <FolderOpen className="size-3.5" />
+        BiliDown MVP · 仅供个人学习与备份使用
       </footer>
     </div>
   );
