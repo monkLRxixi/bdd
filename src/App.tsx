@@ -29,11 +29,11 @@ export default function App() {
 
   return (
     <TooltipProvider delay={350}>
-      <div className="flex h-screen w-full flex-col overflow-hidden">
-        <TitleBar />
-        <div className="flex min-h-0 flex-1">
-          <Sidebar />
-          <main className="min-w-0 flex-1 overflow-y-auto">
+      <div className="flex h-screen w-full overflow-hidden">
+        <Sidebar />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <TitleBar />
+          <main className="min-h-0 flex-1 overflow-y-auto">
             <ScrollToTop />
             <Routes>
               <Route path="/" element={<HomePage />} />
