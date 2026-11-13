@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import {
   Download,
+  Info,
   Search,
   Settings as SettingsIcon,
   Sun,
@@ -50,13 +51,13 @@ function RailLink({
             )}
           >
             {avatar ? (
-              <Avatar size="sm" className="size-6">
+              <Avatar size="sm" className="size-8">
                 <AvatarImage
                   src={avatar.src}
                   alt={avatar.name}
                   referrerPolicy="no-referrer"
                 />
-                <AvatarFallback className="text-[10px]">
+                <AvatarFallback className="text-[11px]">
                   {avatar.name.slice(0, 1) || "B"}
                 </AvatarFallback>
               </Avatar>
@@ -113,17 +114,14 @@ export function Sidebar() {
 
   return (
     <aside className="flex w-[68px] shrink-0 flex-col items-center gap-2 border-r border-sidebar-border bg-sidebar py-4">
-      <Link
-        to="/"
-        aria-label="BiliDown"
-        className="mb-4 block size-10 overflow-hidden rounded-[10px] shadow-sm ring-1 ring-black/5 transition-transform duration-200 hover:scale-[1.04] active:scale-95 dark:ring-white/10"
-      >
-        <img
-          src="/bdd-icon.png"
-          alt="BiliDown"
-          className="size-full object-cover"
+      <div className="mb-1 flex w-full shrink-0 flex-col items-center px-2">
+        <RailLink
+          to="/account"
+          label="账号"
+          avatar={user ? { src: user.face, name: user.uname } : null}
+          icon={<UserRound className="size-[21px]" strokeWidth={1.9} />}
         />
-      </Link>
+      </div>
 
       <nav className="flex w-full flex-col items-center gap-1.5 px-2">
         <RailLink
@@ -136,12 +134,6 @@ export function Sidebar() {
           label="下载任务"
           badge={activeCount > 0}
           icon={<Download className="size-[21px]" strokeWidth={1.9} />}
-        />
-        <RailLink
-          to="/account"
-          label="账号"
-          avatar={user ? { src: user.face, name: user.uname } : null}
-          icon={<UserRound className="size-[21px]" strokeWidth={1.9} />}
         />
       </nav>
 
@@ -160,6 +152,11 @@ export function Sidebar() {
           to="/settings"
           label="设置"
           icon={<SettingsIcon className="size-[19px]" strokeWidth={1.9} />}
+        />
+        <RailLink
+          to="/about"
+          label="关于"
+          icon={<Info className="size-[19px]" strokeWidth={1.9} />}
         />
       </div>
     </aside>

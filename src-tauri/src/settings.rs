@@ -19,6 +19,8 @@ pub struct Settings {
     pub ffmpeg_path: String,
     /// Show a toast when a download finishes.
     pub notify_on_complete: bool,
+    /// Play a chime when a download finishes.
+    pub sound_on_complete: bool,
     /// Maximum number of simultaneous downloads (1-4).
     pub concurrency: u32,
 }
@@ -33,6 +35,7 @@ impl Default for Settings {
             save_cover: true,
             ffmpeg_path: "ffmpeg".to_string(),
             notify_on_complete: true,
+            sound_on_complete: true,
             concurrency: 2,
         }
     }

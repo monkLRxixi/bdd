@@ -11,6 +11,7 @@ const fallback: Settings = {
   saveCover: true,
   ffmpegPath: "ffmpeg",
   notifyOnComplete: true,
+  soundOnComplete: true,
   concurrency: 2,
 };
 

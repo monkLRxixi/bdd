@@ -3,11 +3,18 @@ import react from "@vitejs/plugin-react";
 import process from "node:process";
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
+import pkg from "./package.json";
+
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],
+  // Injected at build time so the UI always shows the packaged version
+  // (the release workflow stamps package.json from the git tag).
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

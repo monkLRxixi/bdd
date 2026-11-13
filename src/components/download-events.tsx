@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 
 import type { DownloadProgress } from "@/lib/types";
+import { playCompleteSound } from "@/lib/sound";
 import { useDownloadStore } from "@/stores/downloads";
 import { useSettingsStore } from "@/stores/settings";
 
@@ -20,7 +21,10 @@ export function DownloadEvents() {
       const task = useDownloadStore.getState().tasks[progress.id];
 
       if (progress.status === "done") {
-        if (useSettingsStore.getState().settings.notifyOnComplete === false) return;
+        const { notifyOnComplete, soundOnComplete } =
+          useSettingsStore.getState().settings;
+        if (soundOnComplete) playCompleteSound();
+        if (!notifyOnComplete) return;
         toast.success("下载完成", {
           description: task
             ? `${task.title}${task.isMulti ? ` · P${task.page}` : ""}`

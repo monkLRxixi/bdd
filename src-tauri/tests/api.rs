@@ -99,6 +99,7 @@ async fn downloads_dash_and_merges() {
         qn: 32,
         codec: "avc1".into(),
         mode: "dash".into(),
+        kind: "video".into(),
         audio_id: Some(30280),
         dir: dir.to_string_lossy().to_string(),
         save_cover: false,
@@ -115,5 +116,93 @@ async fn downloads_dash_and_merges() {
     println!("output: {} ({size} bytes)", out.display());
     assert!(out.exists());
     assert!(size > 500_000, "output should contain a real video");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+#[ignore = "downloads a real audio stream; run with --ignored"]
+async fn downloads_audio_only() {
+    let dir = std::env::temp_dir().join("bilidown-audio-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let state = test_state(&dir);
+
+    let video = bili::fetch_video(&state, Some("BV1GJ411x7h7"), None)
+        .await
+        .unwrap();
+    let cid = video.pages[0].cid;
+
+    let request = DownloadRequest {
+        id: "audio-test".into(),
+        bvid: video.bvid.clone(),
+        cid,
+        title: "bilidown-audio-test".into(),
+        part: "p1".into(),
+        page: 1,
+        is_multi: false,
+        qn: 64,
+        codec: "avc1".into(),
+        mode: "dash".into(),
+        kind: "audio".into(),
+        audio_id: Some(30280),
+        dir: dir.to_string_lossy().to_string(),
+        save_cover: false,
+        cover: String::new(),
+        source_url: String::new(),
+    };
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    let out = download::run_headless(state, request, cancel)
+        .await
+        .expect("audio download should succeed");
+
+    assert_eq!(out.extension().and_then(|e| e.to_str()), Some("m4a"));
+    let size = std::fs::metadata(&out).unwrap().len();
+    println!("audio output: {} ({size} bytes)", out.display());
+    assert!(size > 50_000, "audio output should not be empty");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+#[ignore = "downloads a real cover image; run with --ignored"]
+async fn downloads_cover_only() {
+    let dir = std::env::temp_dir().join("bilidown-cover-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let state = test_state(&dir);
+
+    let video = bili::fetch_video(&state, Some("BV1GJ411x7h7"), None)
+        .await
+        .unwrap();
+    let cid = video.pages[0].cid;
+
+    let request = DownloadRequest {
+        id: "cover-test".into(),
+        bvid: video.bvid.clone(),
+        cid,
+        title: "bilidown-cover-test".into(),
+        part: "p1".into(),
+        page: 1,
+        is_multi: false,
+        qn: 0,
+        codec: "avc1".into(),
+        mode: "dash".into(),
+        kind: "cover".into(),
+        audio_id: None,
+        dir: dir.to_string_lossy().to_string(),
+        save_cover: false,
+        cover: video.cover.clone(),
+        source_url: String::new(),
+    };
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    let out = download::run_headless(state, request, cancel)
+        .await
+        .expect("cover download should succeed");
+
+    assert_eq!(out.extension().and_then(|e| e.to_str()), Some("jpg"));
+    let size = std::fs::metadata(&out).unwrap().len();
+    println!("cover output: {} ({size} bytes)", out.display());
+    assert!(size > 1_000, "cover image should not be empty");
     let _ = std::fs::remove_dir_all(&dir);
 }

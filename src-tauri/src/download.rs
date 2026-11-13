@@ -14,6 +14,10 @@ use crate::settings::Settings;
 
 pub const CANCELED: &str = "__canceled__";
 
+fn default_kind() -> String {
+    "video".to_string()
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadRequest {
@@ -28,6 +32,9 @@ pub struct DownloadRequest {
     pub codec: String,
     /// dash | mp4
     pub mode: String,
+    /// video | audio | cover
+    #[serde(default = "default_kind")]
+    pub kind: String,
     pub audio_id: Option<i64>,
     pub dir: String,
     pub save_cover: bool,
@@ -291,6 +298,13 @@ async fn run_ffmpeg(settings: &Settings, args: &[String]) -> Result<(), String> 
     Ok(())
 }
 
+fn pick_audio_any(dash: &bili::DashData, audio_id: Option<i64>) -> Result<bili::DashAudio, String> {
+    audio_id
+        .and_then(|id| dash.audios.iter().find(|a| a.id == id).cloned())
+        .or_else(|| dash.audios.iter().max_by_key(|a| a.bandwidth).cloned())
+        .ok_or_else(|| "没有可用的音频流，可能需要登录后重试".to_string())
+}
+
 async fn merge_av(
     settings: &Settings,
     video: &Path,
@@ -311,6 +325,31 @@ async fn merge_av(
         "copy".into(),
         "-movflags".into(),
         "+faststart".into(),
+        "-metadata".into(),
+        format!("title={title}"),
+        "-metadata".into(),
+        format!("comment={source}"),
+        out.to_string_lossy().to_string(),
+    ];
+    run_ffmpeg(settings, &args).await
+}
+
+async fn remux_audio(
+    settings: &Settings,
+    src: &Path,
+    out: &Path,
+    title: &str,
+    source: &str,
+) -> Result<(), String> {
+    let args = vec![
+        "-y".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-i".into(),
+        src.to_string_lossy().to_string(),
+        "-vn".into(),
+        "-c".into(),
+        "copy".into(),
         "-metadata".into(),
         format!("title={title}"),
         "-metadata".into(),
@@ -377,7 +416,15 @@ async fn run_inner(
         .await
         .map_err(|e| format!("无法创建下载目录: {e}"))?;
 
-    let folder = if req.is_multi {
+    let kind = if req.kind.trim().is_empty() {
+        "video"
+    } else {
+        req.kind.trim()
+    };
+
+    // A cover belongs to the whole video, so it lives next to the video folder
+    // instead of inside it.
+    let folder = if req.is_multi && kind != "cover" {
         base.join(sanitize(&req.title))
     } else {
         base.clone()
@@ -393,6 +440,25 @@ async fn run_inner(
     };
     let out = unique_path(folder.join(format!("{stem}.mp4")));
 
+    let source_url = if req.source_url.is_empty() {
+        format!("https://www.bilibili.com/video/{}", req.bvid)
+    } else {
+        req.source_url.clone()
+    };
+
+    // A cover belongs to the whole video, so it is saved next to the video
+    // folder instead of inside it, and it never needs a play url.
+    if kind == "cover" {
+        if req.cover.is_empty() {
+            return Err("没有可用的封面地址".to_string());
+        }
+        rep.emit("downloading", "cover", 0, 0, 10.0, 0, "正在保存封面…", None);
+        let cover_path = unique_path(base.join(format!("{}.jpg", sanitize(&req.title))));
+        fetch_cover(state, &req.cover, &cover_path).await?;
+        rep.emit("downloading", "cover", 0, 0, 100.0, 0, "封面已保存", None);
+        return Ok(cover_path);
+    }
+
     rep.emit(
         "downloading",
         "prepare",
@@ -404,13 +470,35 @@ async fn run_inner(
         None,
     );
 
-    let source_url = if req.source_url.is_empty() {
-        format!("https://www.bilibili.com/video/{}", req.bvid)
-    } else {
-        req.source_url.clone()
-    };
+    let mut file_path = out.clone();
 
-    if req.mode == "mp4" {
+    if kind == "audio" {
+        let dash = bili::fetch_dash(state, &req.bvid, req.cid, req.qn).await?;
+        let audio = pick_audio_any(&dash, req.audio_id)?;
+        let mut urls = vec![audio.base_url.clone()];
+        urls.extend(audio.backup_url.clone());
+
+        let audio_temp = folder.join(format!(".{stem}.audio.m4s"));
+        temps.push(audio_temp.clone());
+        download_stream(state, &urls, &audio_temp, cancel, rep, "audio", 0.0, 90.0).await?;
+
+        rep.emit("merging", "merge", 0, 0, 94.0, 0, "正在封装音频…", None);
+        let audio_out = unique_path(folder.join(format!("{stem}.m4a")));
+        if remux_audio(&settings, &audio_temp, &audio_out, &req.title, &source_url)
+            .await
+            .is_err()
+        {
+            // Without a usable ffmpeg the DASH audio stream is still a
+            // playable MP4 container, so keep the bytes as-is.
+            let _ = tokio::fs::remove_file(&audio_out).await;
+            tokio::fs::rename(&audio_temp, &audio_out)
+                .await
+                .map_err(|e| format!("保存音频失败: {e}"))?;
+        } else {
+            let _ = tokio::fs::remove_file(&audio_temp).await;
+        }
+        file_path = audio_out;
+    } else if req.mode == "mp4" {
         let mp4 = bili::fetch_mp4(state, &req.bvid, req.cid, req.qn).await?;
         let total_parts = mp4.parts.len();
         let mut downloaded_parts: Vec<PathBuf> = Vec::new();
@@ -515,7 +603,7 @@ async fn run_inner(
         }
     }
 
-    Ok(out)
+    Ok(file_path)
 }
 
 /// Tell the UI that a task is waiting for a free download slot.

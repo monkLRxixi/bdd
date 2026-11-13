@@ -94,10 +94,14 @@ export interface Settings {
   saveCover: boolean;
   ffmpegPath: string;
   notifyOnComplete: boolean;
+  soundOnComplete: boolean;
   concurrency: number;
 }
 
 export type DownloadMode = "dash" | "mp4";
+
+/** What a task produces: a merged video, an audio-only file, or a cover image. */
+export type DownloadKind = "video" | "audio" | "cover";
 
 export interface DownloadRequest {
   id: string;
@@ -110,6 +114,7 @@ export interface DownloadRequest {
   qn: number;
   codec: string;
   mode: DownloadMode;
+  kind: DownloadKind;
   audioId: number | null;
   dir: string;
   saveCover: boolean;

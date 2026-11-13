@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/sidebar";
 import { TitleBar } from "@/components/title-bar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AboutPage } from "@/pages/about";
 import { AccountPage } from "@/pages/account";
 import { DownloadsPage } from "@/pages/downloads";
 import { HomePage } from "@/pages/home";
@@ -40,6 +41,7 @@ export default function App() {
               <Route path="/downloads" element={<DownloadsPage />} />
               <Route path="/account" element={<AccountPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/about" element={<AboutPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </main>

@@ -25,6 +25,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { api, errorText } from "@/lib/api";
+import { playCompleteSound } from "@/lib/sound";
 import type { Settings } from "@/lib/types";
 import { useAuthStore } from "@/stores/auth";
 import { useSettingsStore, useUiStore } from "@/stores/settings";
@@ -259,7 +260,7 @@ export function SettingsPage() {
 
       <div className="mt-9 space-y-6">
         <SettingRow label="通知">
-          <div className="flex flex-wrap gap-x-6 gap-y-2">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <CheckOption
               checked={draft.notifyOnComplete}
               onCheckedChange={(checked) =>
@@ -268,6 +269,17 @@ export function SettingsPage() {
             >
               下载完成提示
             </CheckOption>
+            <div className="flex items-center gap-3">
+              <CheckOption
+                checked={draft.soundOnComplete}
+                onCheckedChange={(checked) =>
+                  update("soundOnComplete", checked)
+                }
+              >
+                下载完毕响铃
+              </CheckOption>
+              <TextButton onClick={playCompleteSound}>试听</TextButton>
+            </div>
           </div>
         </SettingRow>
 
@@ -460,7 +472,7 @@ export function SettingsPage() {
         <SettingRow label="版本">
           <div className="flex flex-wrap items-center gap-3">
             <Badge variant="secondary" className="font-mono">
-              0.1.0
+              {__APP_VERSION__}
             </Badge>
             <Dialog>
               <DialogTrigger
@@ -476,7 +488,7 @@ export function SettingsPage() {
               </DialogTrigger>
               <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                  <DialogTitle>BiliDown 0.1.0</DialogTitle>
+                  <DialogTitle>BiliDown {__APP_VERSION__}</DialogTitle>
                   <DialogDescription>
                     Tauri 2 + React 19 + shadcn/ui 构建的 B 站视频下载器。
                   </DialogDescription>

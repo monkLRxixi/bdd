@@ -6,7 +6,10 @@ import {
   ClipboardPaste,
   Download,
   ExternalLink,
+  Film,
+  Image as ImageIcon,
   Loader2,
+  Music,
   Search,
   UserRound,
   X,
@@ -34,6 +37,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api, errorText } from "@/lib/api";
 import { formatBytes, formatDuration } from "@/lib/format";
 import type {
+  DownloadKind,
   DownloadMode,
   DownloadRequest,
   StreamsPayload,
@@ -175,6 +179,7 @@ export function HomePage() {
   const [streamsError, setStreamsError] = useState("");
 
   const [mode, setMode] = useState<DownloadMode>("dash");
+  const [kind, setKind] = useState<DownloadKind>("video");
   const [qn, setQn] = useState(0);
   const [codec, setCodec] = useState("avc1");
   const [audioId, setAudioId] = useState<number | null>(null);
@@ -353,21 +358,29 @@ export function HomePage() {
   const canDownload =
     !!video &&
     selectedCount > 0 &&
-    !streamsLoading &&
     !starting &&
-    (mode === "dash"
-      ? !!quality && !!audioId
-      : !!streams?.mp4);
+    (kind === "cover"
+      ? !!video.cover
+      : kind === "audio"
+        ? !streamsLoading && !!audioId
+        : !streamsLoading &&
+          (mode === "dash" ? !!quality && !!audioId : !!streams?.mp4));
 
   const startDownload = async () => {
     if (!video || !canDownload) return;
-    const pages = video.pages.filter((_, index) => selectedPages.has(index));
-    if (pages.length === 0) return;
+    const picked = video.pages.filter((_, index) => selectedPages.has(index));
+    if (picked.length === 0) return;
+    // A cover is per video, not per part: one task is enough.
+    const pages = kind === "cover" ? picked.slice(0, 1) : picked;
 
     const qualityLabel =
-      mode === "dash"
-        ? (quality?.label ?? "高清")
-        : (streams?.mp4?.label ?? "MP4");
+      kind === "cover"
+        ? "封面"
+        : kind === "audio"
+          ? "音频 M4A"
+          : mode === "dash"
+            ? (quality?.label ?? "高清")
+            : (streams?.mp4?.label ?? "MP4");
 
     const requests: DownloadRequest[] = pages.map((page) => ({
       id: crypto.randomUUID(),
@@ -380,7 +393,8 @@ export function HomePage() {
       qn: mode === "dash" ? qn : (streams?.mp4?.quality ?? 80),
       codec,
       mode,
-      audioId: mode === "dash" ? audioId : null,
+      kind,
+      audioId: mode === "dash" || kind === "audio" ? audioId : null,
       dir: settings.downloadDir,
       saveCover,
       cover: video.cover,
@@ -410,6 +424,8 @@ export function HomePage() {
     } else {
       if (failures > 0) {
         toast.error(`${failures} 个任务启动失败`, { description: firstError });
+      } else if (kind === "cover") {
+        toast.success("已开始保存封面", { description: video.title });
       } else {
         toast.success(
           requests.length > 1
@@ -591,32 +607,59 @@ export function HomePage() {
           <Card className="gap-0 py-0">
             <CardContent className="space-y-3.5 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <Tabs
-                  value={mode}
-                  onValueChange={(value) => setMode(value as DownloadMode)}
-                >
-                  <TabsList>
-                    <TabsTrigger value="dash">DASH</TabsTrigger>
-                    <TabsTrigger value="mp4" disabled={!streams?.mp4}>
-                      MP4
-                    </TabsTrigger>
-                  </TabsList>
-                </Tabs>
-                {streams?.note ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Tabs
+                    value={kind}
+                    onValueChange={(value) => setKind(value as DownloadKind)}
+                  >
+                    <TabsList>
+                      <TabsTrigger value="video">
+                        <Film className="size-3.5" />
+                        视频
+                      </TabsTrigger>
+                      <TabsTrigger value="audio">
+                        <Music className="size-3.5" />
+                        音频
+                      </TabsTrigger>
+                      <TabsTrigger value="cover">
+                        <ImageIcon className="size-3.5" />
+                        封面
+                      </TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                  {kind === "video" ? (
+                    <Tabs
+                      value={mode}
+                      onValueChange={(value) => setMode(value as DownloadMode)}
+                    >
+                      <TabsList>
+                        <TabsTrigger value="dash">DASH</TabsTrigger>
+                        <TabsTrigger value="mp4" disabled={!streams?.mp4}>
+                          MP4
+                        </TabsTrigger>
+                      </TabsList>
+                    </Tabs>
+                  ) : null}
+                </div>
+                {kind === "video" && streams?.note ? (
                   <p className="text-[11px] text-amber-600 dark:text-amber-400">
                     {streams.note}
                   </p>
                 ) : null}
               </div>
 
-              {streamsError ? (
+              {streamsError && kind !== "cover" ? (
                 <Alert variant="destructive">
                   <AlertCircle />
                   <AlertDescription>{streamsError}</AlertDescription>
                 </Alert>
               ) : null}
 
-              {streamsLoading ? (
+              {kind === "cover" ? (
+                <p className="text-[11px] text-muted-foreground">
+                  仅保存该视频的封面图片（JPG），不下载视频或音频流。
+                </p>
+              ) : streamsLoading ? (
                 <div className="grid gap-3 sm:grid-cols-3">
                   <Skeleton className="h-9 w-full rounded-lg" />
                   <Skeleton className="h-9 w-full rounded-lg" />
@@ -624,7 +667,28 @@ export function HomePage() {
                 </div>
               ) : streams ? (
                 <div className="grid gap-3 sm:grid-cols-3">
-                  {mode === "dash" ? (
+                  {kind === "audio" ? (
+                    <Field label="音轨" hint="保存为 M4A">
+                      <Select
+                        value={audioId ? String(audioId) : ""}
+                        onValueChange={(value) => {
+                          if (value != null) setAudioId(Number(value));
+                        }}
+                        items={audioItems}
+                      >
+                        <SelectTrigger className="h-9 w-full">
+                          <SelectValue placeholder="选择音轨" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {audioItems.map((item) => (
+                            <SelectItem key={item.value} value={item.value}>
+                              {item.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  ) : mode === "dash" ? (
                     <>
                       <Field label="画质">
                         <Select
@@ -714,14 +778,22 @@ export function HomePage() {
               ) : null}
 
               <div className="flex items-center justify-between gap-3 border-t border-border/70 pt-3">
-                <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-                  <Switch
-                    checked={saveCover}
-                    onCheckedChange={setSaveCover}
-                    size="sm"
-                  />
-                  封面
-                </label>
+                {kind === "cover" ? (
+                  <span className="text-[11px] text-muted-foreground">
+                    {video.isMulti
+                      ? "多 P 视频共用一个封面，只保存一张 JPG"
+                      : "封面为 JPG 图片，保存在下载目录根目录"}
+                  </span>
+                ) : (
+                  <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                    <Switch
+                      checked={saveCover}
+                      onCheckedChange={setSaveCover}
+                      size="sm"
+                    />
+                    封面
+                  </label>
+                )}
                 <Button
                   size="lg"
                   className="h-9 rounded-xl px-5"
@@ -735,9 +807,15 @@ export function HomePage() {
                   )}
                   {starting
                     ? "创建中"
-                    : selectedCount > 1
-                      ? `下载 ${selectedCount} 个分P`
-                      : "下载"}
+                    : kind === "cover"
+                      ? "下载封面"
+                      : kind === "audio"
+                        ? selectedCount > 1
+                          ? `下载 ${selectedCount} 个音频`
+                          : "下载音频"
+                        : selectedCount > 1
+                          ? `下载 ${selectedCount} 个分P`
+                          : "下载"}
                 </Button>
               </div>
             </CardContent>

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import type {
+  DownloadKind,
   DownloadProgress,
   DownloadRequest,
   TaskStatus,
@@ -15,7 +16,10 @@ export interface DownloadTask {
   isMulti: boolean;
   bvid: string;
   mode: "dash" | "mp4";
+  /** Older persisted tasks predate this field, so it is optional. */
+  kind?: DownloadKind;
   quality: string;
+  cover?: string;
   status: TaskStatus;
   phase: string;
   percent: number;
@@ -59,7 +63,9 @@ export const useDownloadStore = create<DownloadStore>()(
               isMulti: req.isMulti,
               bvid: req.bvid,
               mode: req.mode,
+              kind: req.kind,
               quality,
+              cover: req.cover,
               status: "downloading",
               phase: "prepare",
               percent: 0,

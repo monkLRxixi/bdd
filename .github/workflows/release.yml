@@ -1,0 +1,186 @@
+name: Release
+
+# A tag on `main` (v1.2.3) runs the checks first, then bundles Windows and
+# Linux installers. Everything is uploaded to a *draft* release which is only
+# published after both platforms uploaded their packages, so a failing
+# platform can never leave a half-finished public release behind.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    name: Checks
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  prepare:
+    name: Verify tag and open draft
+    needs: checks
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      body: ${{ steps.meta.outputs.body }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify the tag is on main and collect metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not point to a commit on main; refusing to release."
+            exit 1
+          fi
+
+          version="${GITHUB_REF_NAME#v}"
+          if ! grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$' <<<"$version"; then
+            echo "::error::Tag ${GITHUB_REF_NAME} is not semver (expected vMAJOR.MINOR.PATCH)."
+            exit 1
+          fi
+
+          body="$(git log -1 --pretty=%B "$GITHUB_SHA")"
+          printf '%s\n' "$body" > "$RUNNER_TEMP/release-notes.md"
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          {
+            echo "body<<BODY_EOF"
+            echo "$body"
+            echo "BODY_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # Creating the draft here (instead of letting the two matrix jobs race to
+      # create the same release) keeps the release hidden until `publish` runs.
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          title="BiliDown $tag"
+          notes="$RUNNER_TEMP/release-notes.md"
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [ "$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" != "true" ]; then
+              echo "::error::Release $tag is already published. Delete it (and re-push the tag) to release again."
+              exit 1
+            fi
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --title "$title" --notes-file "$notes"
+          else
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft --title "$title" --notes-file "$notes"
+          fi
+
+  bundle:
+    name: Bundle (${{ matrix.name }})
+    needs: [prepare]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            linux: false
+          - name: Linux
+            os: ubuntu-22.04
+            linux: true
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.linux == true
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            libfuse2 \
+            patchelf
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.14.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      # Keep artifact file names in sync with the tag (v0.2.0 -> 0.2.0).
+      - name: Stamp version from tag
+        run: node scripts/stamp-version.mjs "${{ needs.prepare.outputs.version }}"
+
+      # `releaseDraft: true` keeps the release hidden even if one platform
+      # finishes uploads long before the other.
+      - name: Build and upload to the draft
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: BiliDown ${{ github.ref_name }}
+          releaseBody: ${{ needs.prepare.outputs.body }}
+          releaseDraft: true
+          prerelease: false
+
+  publish:
+    name: Publish release
+    needs: [prepare, bundle]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify every platform uploaded packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          assets="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          printf '%s\n' "$assets"
+
+          fail=0
+          grep -Eq '\.(msi|exe)$' <<<"$assets" || { echo "::error::no Windows installer was uploaded"; fail=1; }
+          grep -Eq '\.(deb|rpm|AppImage)$' <<<"$assets" || { echo "::error::no Linux package was uploaded"; fail=1; }
+          if [ "$fail" -ne 0 ]; then
+            echo "Keeping $tag as a draft release (nothing was published)."
+            exit 1
+          fi
+
+      - name: Publish the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false

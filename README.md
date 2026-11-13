@@ -39,12 +39,17 @@
 - **链接解析**：支持 BV 号、av 号、`b23.tv` 短链和完整视频链接。
 - **分 P 批量下载**：复选框列出全部分 P，支持全选（快捷键 `A`）和批量入队。
 - **真实画质**：读取 DASH 实际可用码流，可选画质、编码（H.264 / H.265 / AV1）和音轨。
+- **下载内容可选**：解析后可按需选择下载「视频」「音频」「封面」：
+  - `视频`：按所选模式下载完整音视频并合并为 MP4。
+  - `音频`：只取 DASH 音轨，用 ffmpeg 无损封装为 M4A；没有 ffmpeg 时直接保留原始音频容器。
+  - `封面`：只保存该视频的封面 JPG，不请求播放地址。
 - **两种下载模式**：
   - `DASH`：分别下载视频流与音频流，使用 ffmpeg 无损合并为 MP4。
   - `单文件 MP4`：适合没有 ffmpeg 的环境，匿名最高 720P。
-- **任务管理**：待下载 / 下载中 / 已下载三栏，实时进度、速度、剩余时间、取消与打开文件夹。
+- **任务管理**：待下载 / 下载中 / 已下载三栏，实时进度、速度、剩余时间、取消与打开文件夹；同一视频的分 P 合并为一张卡片，点击后在同一盒子内展开：可选「完整（带封面）/ 简洁（纯文字，高度约为主卡一半）/ 栅格（纯文字多列）」三种分 P 展示方式，选择会保存在本地。
 - **并发控制**：同时下载数可在设置中调整为 1–4 个，超出部分显示「排队中」。
 - **扫码登录**：B 站二维码登录，登录后可获取 1080P；大会员支持更高画质。
+- **完成提醒**：下载结束显示 Toast 并可选响铃（通知栏可开关，支持试听）。
 - **桌面体验**：无边框窗口、左侧栏布局、深浅主题、设置自动保存。
 
 ## 技术栈
@@ -95,6 +100,34 @@ cargo test
 cargo test --test api -- --ignored --nocapture --test-threads=1
 ```
 
+## CI/CD
+
+流水线全部使用 GitHub Actions，包管理为 pnpm（`pnpm install --frozen-lockfile`）。
+
+| 触发条件 | 流程 | 结果 |
+| --- | --- | --- |
+| 推送到 `dev` | `.github/workflows/ci.yml` | 前端 typecheck + 构建；Rust `fmt` / `clippy` / `test`（Ubuntu 22.04 + Windows） |
+| 推送到 `main` | 同上 | 同上（只做检查与测试，不打包） |
+| 推送到标签 `v*` | `.github/workflows/release.yml` | 先跑完全部检查 → 从标签 commit 打包 Windows（MSI / NSIS）与 Linux（deb / AppImage / rpm），上传到 **draft** Release → 两个平台都成功后才发布（原子发布） |
+
+说明：
+
+- Release 发布前会校验标签指向 `main` 上的提交，并且必须是 `vMAJOR.MINOR.PATCH` 形式；不满足直接失败，不会产出安装包。
+- 发布说明（Release notes）直接取该标签 commit 的提交信息（`git log -1 --pretty=%B`），无需手写。
+- **原子发布**：`prepare` 先建好 draft Release（不再让两个矩阵 job 抢着创建），两个平台并行上传；`publish` 会校验 Windows 与 Linux 的安装包都存在，才用 `gh release edit --draft=false` 正式发布。任何一个平台失败或产物缺失，Release 会停留在 draft（对外不可见），修好后重跑失败的 job 即可。
+- 如果同名 Release 已经正式发布过，重新跑同一个标签会报错——需要先在 Releases 页面删掉该 Release，再重跑（或重新打 tag）。
+- 打包时会用 `scripts/stamp-version.mjs` 把标签版本写入 `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`，产物文件名与版本号自动对齐，仓库里的版本号不必手动修改。
+- 认证使用自带的 `GITHUB_TOKEN`（需要仓库 Settings → Actions 允许写入），无需额外 Secret。
+- `tests/api.rs` 里依赖 B 站网络的测试标记为 `#[ignore]`，CI 不执行，避免外网抖动导致流水线失败。
+
+发布一个新版本：
+
+```bash
+git checkout main && git pull
+git tag v0.2.0
+git push origin v0.2.0
+```
+
 ## 使用说明
 
 1. 粘贴视频链接或 BV 号，点击「解析」。
@@ -133,7 +166,7 @@ public/bdd-icon.png    # 应用图标 / favicon
 - **CDN 容灾**：流请求统一携带 `Referer`，优先使用 `baseUrl`，失败时依次尝试 `backupUrl`。
 - **下载并发**：后端使用 tokio Semaphore 限制同时下载数，等待任务通过 `queued` 事件通知前端。
 - **进度事件**：Rust 约每 160ms 节流发送 `download:progress`，前端合并到 Zustand 任务状态。
-- **设置自动保存**：修改后约 500ms 写入本地，包含下载目录、画质、音轨、编码、并发数与通知开关。
+- **设置自动保存**：修改后约 500ms 写入本地，包含下载目录、画质、音轨、编码、并发数、完成提示与响铃开关。
 
 ## 本地数据
 
