@@ -1,7 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import {
   Download,
-  Play,
   Search,
   Settings as SettingsIcon,
   Sun,
@@ -117,9 +116,13 @@ export function Sidebar() {
       <Link
         to="/"
         aria-label="BiliDown"
-        className="mb-4 grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-primary/25 transition-transform duration-200 hover:scale-[1.04] active:scale-95"
+        className="mb-4 block size-10 overflow-hidden rounded-[10px] shadow-sm ring-1 ring-black/5 transition-transform duration-200 hover:scale-[1.04] active:scale-95 dark:ring-white/10"
       >
-        <Play className="size-4 fill-current" />
+        <img
+          src="/bdd-icon.png"
+          alt="BiliDown"
+          className="size-full object-cover"
+        />
       </Link>
 
       <nav className="flex w-full flex-col items-center gap-1.5 px-2">
